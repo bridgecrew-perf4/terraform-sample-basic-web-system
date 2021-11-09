@@ -1,0 +1,69 @@
+pipeline {
+  // environment {
+    // AWS_SECRET_KEY = credentials("AWS_SECRET_KEY")
+    // AWS_SECRET_ACCESS_KEY = credentials("AWS_SECRET_ACCESS_KEY")
+  // }
+
+  // agent {
+    // withCredentials([
+    //   string(credentialsId: 'AWS_SECRET_KEY', variable: 'AWS_SECRET_KEY'),
+    //   string(credentialsId: 'AWS_SECRET_ACCESS_KEY', variable: 'AWS_SECRET_ACCESS_KEY')
+    // ]){
+    //   dockerfile {
+    //     filename 'Dockerfile'
+    //     dir 'job-awscli'
+    //     additionalBuildArgs "--build-arg AWS_SECRET_KEY=$AWS_SECRET_KEY --build-arg AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY"
+    //   }
+    // }
+  // }
+  agent any
+
+  options {
+    skipDefaultCheckout true
+  }
+
+  parameters {
+    booleanParam(name: 'SAMPLE', defaultValue: true, description: 'これはサンプルです。')
+    string(name: 'SNAPSHOT_ID', defaultValue: '', description: 'リストアするスナップショットIDを入力してください。')
+  }
+
+  stages {
+    stage('Image Build') {
+      steps {
+        script {
+          withCredentials([string(credentialsId: 'AWS_SECRET_KEY', variable: 'AWS_SECRET_KEY'), string(credentialsId: 'AWS_SECRET_ACCESS_KEY', variable: 'AWS_SECRET_ACCESS_KEY')]) {
+            docker.build("awscli:latest", "-f Dockerfile ./job-awscli --build-arg AWS_SECRET_KEY=${AWS_SECRET_KEY} --build-arg AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}")
+          }
+        }
+      }
+    }
+    stage('terraform plan'){
+      agent {
+        docker {
+          image 'awscli:latest'
+        }
+      }
+      when {
+        expression {return params.SAMPLE != false}
+      }
+      steps {
+        script {
+          def result = sh (
+            script: '''
+            id
+            cat ~/.aws/config 
+            /usr/local/bin/aws s3 ls --profile switch-role-to-system-admin
+            echo $?
+            ''',
+            returnStatus: true
+          )
+          if (result != 1) {
+            error "エラーです。"
+          }
+        }
+      }
+    }
+    stage('terraform apply'){}
+  }
+}
+
